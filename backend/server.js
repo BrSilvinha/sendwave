@@ -8,13 +8,23 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 const server = http.createServer(app);
-const ALLOWED_ORIGIN = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'https://sendwave-lime.vercel.app',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
-const io = new Server(server, {
-  cors: { origin: ALLOWED_ORIGIN, methods: ['GET', 'POST'] },
-});
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+    else cb(new Error('CORS: origen no permitido'));
+  },
+  methods: ['GET', 'POST'],
+};
 
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+const io = new Server(server, { cors: corsOptions });
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // ── Auth config ──────────────────────────────────────────────────────────────
