@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# WhatsApp session (sensitive - never commit)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Next.js build
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env.production.local
+.env.development.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
