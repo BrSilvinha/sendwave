@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Puppeteer Chrome cache
+backend/.cache/
+
 # WhatsApp session (sensitive - never commit)
 .wwebjs_auth/
 .wwebjs_cache/
