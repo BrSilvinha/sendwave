@@ -19,7 +19,7 @@ type Group = {
   memberCount: number;
 };
 
-const BACKEND = 'http://localhost:3001';
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
 
 export default function Home() {
   const [status, setStatus] = useState<Status>('loading');

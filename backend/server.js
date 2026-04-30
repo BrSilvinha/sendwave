@@ -8,11 +8,13 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 const server = http.createServer(app);
+const ALLOWED_ORIGIN = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+
 const io = new Server(server, {
-  cors: { origin: 'http://localhost:3000', methods: ['GET', 'POST'] },
+  cors: { origin: ALLOWED_ORIGIN, methods: ['GET', 'POST'] },
 });
 
-app.use(cors({ origin: 'http://localhost:3000' }));
+app.use(cors({ origin: ALLOWED_ORIGIN }));
 app.use(express.json());
 
 // ── Auth config ──────────────────────────────────────────────────────────────
