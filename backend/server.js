@@ -152,7 +152,10 @@ app.get('/api/groups/:groupId/members', async (req, res) => {
   if (!isConnected || !waSocket) return res.status(400).json({ error: 'WhatsApp no está conectado' });
   try {
     const metadata = await waSocket.groupMetadata(req.params.groupId);
-    const numbers = metadata.participants.map((p) => p.id.split('@')[0]).filter(Boolean);
+    const numbers = metadata.participants
+      .filter((p) => p.id.endsWith('@s.whatsapp.net'))
+      .map((p) => p.id.split('@')[0])
+      .filter(Boolean);
     res.json({ numbers, total: numbers.length });
   } catch {
     res.status(500).json({ error: 'Error al obtener miembros' });
