@@ -6,8 +6,13 @@ const { pathToFileURL } = require('url');
 let win = null;
 
 async function startServer() {
-  const backendPath = path.join(app.getAppPath(), 'backend', 'server.js');
-  await import(pathToFileURL(backendPath).href);
+  // El backend corre en el mismo proceso — se establecen las vars ANTES de importar
+  process.env.PORT = '3001';
+  process.env.WA_AUTH_PATH = app.getPath('userData');
+  process.env.FRONTEND_OUT = path.join(app.getAppPath(), 'frontend', 'out');
+
+  const serverPath = path.join(app.getAppPath(), 'backend', 'server.js');
+  await import(pathToFileURL(serverPath).href);
 }
 
 function waitForBackend(retries = 40, interval = 1000) {
@@ -17,12 +22,12 @@ function waitForBackend(retries = 40, interval = 1000) {
       http
         .get('http://localhost:3001/health', (res) => {
           if (res.statusCode === 200) return resolve();
-          else retry();
+          retry();
         })
         .on('error', retry);
     };
     const retry = () => {
-      if (++attempts >= retries) return reject(new Error('El servidor no respondió en 40s'));
+      if (++attempts >= retries) return reject(new Error('El servidor no respondió'));
       setTimeout(check, interval);
     };
     check();

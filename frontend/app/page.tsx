@@ -5,19 +5,9 @@ import { io, Socket } from 'socket.io-client';
 import { QRCodeSVG } from 'qrcode.react';
 
 type Status = 'loading' | 'qr' | 'authenticated' | 'ready' | 'disconnected';
-
-type ProgressItem = {
-  index: number;
-  total: number;
-  number: string;
-  status: 'sent' | 'error';
-};
-
-type Group = {
-  id: string;
-  name: string;
-  memberCount: number;
-};
+type ProgressItem = { index: number; total: number; number: string; status: 'sent' | 'error' };
+type Group = { id: string; name: string; memberCount: number };
+type ImportResult = { ok: boolean; message: string };
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
 
@@ -32,7 +22,9 @@ export default function Home() {
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
+  const [groupsError, setGroupsError] = useState('');
   const [importingGroup, setImportingGroup] = useState<string | null>(null);
+  const [importResults, setImportResults] = useState<Record<string, ImportResult>>({});
   const [showGroups, setShowGroups] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
@@ -41,18 +33,13 @@ export default function Home() {
   useEffect(() => {
     const socket = io(BACKEND);
     socketRef.current = socket;
-
     socket.on('status', (s: Status) => setStatus(s));
     socket.on('qr', (q: string) => setQr(q));
     socket.on('progress', (p: ProgressItem) => {
       setProgress((prev) => [...prev, p]);
       setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50);
     });
-    socket.on('done', () => {
-      setSending(false);
-      setDone(true);
-    });
-
+    socket.on('done', () => { setSending(false); setDone(true); });
     return () => { socket.disconnect(); };
   }, []);
 
@@ -66,7 +53,6 @@ export default function Home() {
     setSending(true);
     setDone(false);
     setProgress([]);
-
     try {
       const res = await fetch(`${BACKEND}/api/send`, {
         method: 'POST',
@@ -84,20 +70,23 @@ export default function Home() {
     }
   };
 
-  const handleReset = () => {
-    setProgress([]);
-    setDone(false);
-    setSending(false);
-  };
-
   const handleLoadGroups = async () => {
     setLoadingGroups(true);
     setShowGroups(true);
+    setGroupsError('');
+    setImportResults({});
     try {
       const res = await fetch(`${BACKEND}/api/groups`);
       const data = await res.json();
-      setGroups(data.groups ?? []);
+      if (!res.ok) {
+        setGroupsError(data.error ?? 'Error al cargar grupos');
+        setGroups([]);
+      } else {
+        setGroups(data.groups ?? []);
+        if ((data.groups ?? []).length === 0) setGroupsError('No se encontraron grupos.');
+      }
     } catch {
+      setGroupsError('No se pudo conectar. ¿WhatsApp está conectado?');
       setGroups([]);
     } finally {
       setLoadingGroups(false);
@@ -106,19 +95,51 @@ export default function Home() {
 
   const handleImportGroup = async (groupId: string) => {
     setImportingGroup(groupId);
+    setImportResults((prev) => ({ ...prev, [groupId]: { ok: false, message: '' } }));
     try {
       const res = await fetch(`${BACKEND}/api/groups/${encodeURIComponent(groupId)}/members`);
       const data = await res.json();
-      if (data.numbers?.length) {
-        setNumbers((prev) => {
-          const existing = new Set(
-            prev.split('\n').map((n) => n.trim()).filter(Boolean)
-          );
-          const incoming = (data.numbers as string[]).filter((n) => !existing.has(n));
-          const merged = [...existing, ...incoming].join('\n');
-          return merged;
-        });
+
+      if (!res.ok) {
+        setImportResults((prev) => ({
+          ...prev,
+          [groupId]: { ok: false, message: data.error ?? `Error ${res.status}` },
+        }));
+        return;
       }
+
+      const incoming: string[] = data.numbers ?? [];
+
+      if (incoming.length === 0) {
+        setImportResults((prev) => ({
+          ...prev,
+          [groupId]: { ok: false, message: 'Sin números disponibles (todos tienen privacidad activada)' },
+        }));
+        return;
+      }
+
+      let added = 0;
+      setNumbers((prev) => {
+        const existing = new Set(prev.split('\n').map((n) => n.trim()).filter(Boolean));
+        const newOnes = incoming.filter((n) => !existing.has(n));
+        added = newOnes.length;
+        return [...existing, ...newOnes].join('\n');
+      });
+
+      setImportResults((prev) => ({
+        ...prev,
+        [groupId]: {
+          ok: true,
+          message: added > 0
+            ? `${incoming.length} números importados`
+            : `${incoming.length} números ya estaban en la lista`,
+        },
+      }));
+    } catch {
+      setImportResults((prev) => ({
+        ...prev,
+        [groupId]: { ok: false, message: 'Error de conexión con el servidor' },
+      }));
     } finally {
       setImportingGroup(null);
     }
@@ -184,7 +205,7 @@ export default function Home() {
         </span>
       </div>
 
-      {/* Sección de grupos */}
+      {/* Grupos */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-700">Mis grupos de WhatsApp</h2>
@@ -193,7 +214,7 @@ export default function Home() {
             disabled={loadingGroups}
             className="text-xs px-3 py-1.5 rounded-lg bg-green-50 text-green-700 font-medium hover:bg-green-100 disabled:opacity-50 transition-colors"
           >
-            {loadingGroups ? 'Cargando...' : 'Cargar grupos'}
+            {loadingGroups ? 'Cargando...' : showGroups ? 'Actualizar' : 'Cargar grupos'}
           </button>
         </div>
 
@@ -206,43 +227,50 @@ export default function Home() {
               </div>
             )}
 
-            {!loadingGroups && groups.length === 0 && (
-              <p className="text-xs text-gray-400 py-2">No se encontraron grupos.</p>
+            {!loadingGroups && groupsError && (
+              <p className="text-xs text-red-500 py-2">{groupsError}</p>
             )}
 
             {!loadingGroups && groups.length > 0 && (
-              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                {groups.map((g) => (
-                  <div
-                    key={g.id}
-                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{g.name}</p>
-                      <p className="text-xs text-gray-400">{g.memberCount} miembro(s)</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {groups.map((g) => {
+                  const result = importResults[g.id];
+                  return (
+                    <div key={g.id} className="rounded-xl bg-gray-50 px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 mr-3">
+                          <p className="text-sm font-medium text-gray-800 truncate">{g.name}</p>
+                          <p className="text-xs text-gray-400">{g.memberCount} miembro(s)</p>
+                        </div>
+                        <button
+                          onClick={() => handleImportGroup(g.id)}
+                          disabled={importingGroup === g.id || sending}
+                          className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 disabled:opacity-50 transition-colors"
+                        >
+                          {importingGroup === g.id ? 'Importando...' : 'Importar'}
+                        </button>
+                      </div>
+                      {result && result.message && (
+                        <p className={`text-xs mt-1.5 ${result.ok ? 'text-green-600' : 'text-red-500'}`}>
+                          {result.ok ? '✓' : '✗'} {result.message}
+                        </p>
+                      )}
                     </div>
-                    <button
-                      onClick={() => handleImportGroup(g.id)}
-                      disabled={importingGroup === g.id || sending}
-                      className="ml-3 shrink-0 text-xs px-3 py-1.5 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 disabled:opacity-50 transition-colors"
-                    >
-                      {importingGroup === g.id ? 'Importando...' : 'Importar números'}
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* Formulario de envío */}
+      {/* Formulario */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="block text-sm font-medium text-gray-700">
-              Numeros de telefono
-              <span className="text-gray-400 font-normal ml-1">(uno por linea, con codigo de pais)</span>
+              Números de teléfono
+              <span className="text-gray-400 font-normal ml-1">(uno por línea, con código de país)</span>
             </label>
             {numberList.length > 0 && (
               <button
@@ -262,7 +290,7 @@ export default function Home() {
             disabled={sending}
           />
           {numberList.length > 0 && (
-            <p className="text-xs text-gray-400 mt-1">{numberList.length} numero(s) detectado(s)</p>
+            <p className="text-xs text-gray-400 mt-1">{numberList.length} número(s) detectado(s)</p>
           )}
         </div>
 
@@ -270,7 +298,7 @@ export default function Home() {
           <label className="block text-sm font-medium text-gray-700 mb-1">Mensaje</label>
           <textarea
             className="w-full h-28 rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-            placeholder="Escribe tu mensaje aqui..."
+            placeholder="Escribe tu mensaje aquí..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             disabled={sending}
@@ -285,14 +313,16 @@ export default function Home() {
           disabled={sending || !numberList.length || !message.trim()}
           className="w-full py-3 rounded-xl bg-green-500 text-white font-semibold text-sm hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          {sending ? `Enviando... (${progress.length}/${total})` : `Enviar a ${numberList.length} numero(s)`}
+          {sending
+            ? `Enviando... (${progress.length}/${total})`
+            : `Enviar a ${numberList.length} número(s)`}
         </button>
       </div>
 
       {(progress.length > 0 || done) && (
         <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-700">Registro de envio</h2>
+            <h2 className="text-sm font-semibold text-gray-700">Registro de envío</h2>
             <div className="flex gap-3 text-xs">
               <span className="text-green-600 font-medium">{sentCount} enviados</span>
               {errorCount > 0 && (
@@ -310,10 +340,7 @@ export default function Home() {
             </div>
           )}
 
-          <div
-            ref={logRef}
-            className="space-y-1 max-h-52 overflow-y-auto text-xs font-mono"
-          >
+          <div ref={logRef} className="space-y-1 max-h-52 overflow-y-auto text-xs font-mono">
             {progress.map((p, i) => (
               <div
                 key={i}
@@ -331,10 +358,10 @@ export default function Home() {
           {done && (
             <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
               <p className="text-sm text-gray-600">
-                Envio completado — {sentCount} de {total} mensajes enviados
+                Envío completado — {sentCount} de {total} mensajes enviados
               </p>
               <button
-                onClick={handleReset}
+                onClick={() => { setProgress([]); setDone(false); setSending(false); }}
                 className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
               >
                 Limpiar
