@@ -5,6 +5,7 @@ import cors from 'cors';
 import pino from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { rm } from 'fs/promises';
 import {
   makeWASocket,
   DisconnectReason,
@@ -57,10 +58,15 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 const randomDelay = () => delay(1500 + Math.random() * 1500);
 
 // ── WhatsApp con Baileys ──────────────────────────────────────────────────────
+const authDir = process.env.WA_AUTH_PATH
+  ? path.join(process.env.WA_AUTH_PATH, '.auth_state')
+  : path.join(__dirname, '.auth_state');
+
+async function clearAuthState() {
+  try { await rm(authDir, { recursive: true, force: true }); } catch {}
+}
+
 async function initWhatsApp() {
-  const authDir = process.env.WA_AUTH_PATH
-    ? path.join(process.env.WA_AUTH_PATH, '.auth_state')
-    : '.auth_state';
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -110,13 +116,14 @@ async function initWhatsApp() {
       const loggedOut = code === DisconnectReason.loggedOut;
 
       if (loggedOut) {
-        console.log('Sesión cerrada — se necesita nuevo QR');
+        console.log('Sesion cerrada — borrando credenciales y generando nuevo QR');
         reconnectDelay = 3000;
+        clearAuthState().then(() => setTimeout(initWhatsApp, reconnectDelay));
       } else {
         console.log(`Desconectado (${code}) — reconectando en ${reconnectDelay}ms`);
+        setTimeout(initWhatsApp, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 60000);
       }
-      setTimeout(initWhatsApp, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, 60000);
     }
   });
 }
