@@ -19,7 +19,6 @@ const initialChecks: Check[] = [
   { id: 'cors',     label: 'CORS configurado',       detail: 'Origen permitido',               status: 'pending' },
   { id: 'socket',   label: 'Socket.IO conectado',    detail: 'Conexión en tiempo real',        status: 'pending' },
   { id: 'wstatus',  label: 'Estado de WhatsApp',     detail: 'GET /api/status',                status: 'pending' },
-  { id: 'login',    label: 'Endpoint de login',      detail: 'POST /api/admin/login (401)',    status: 'pending' },
   { id: 'groups',   label: 'Endpoint de grupos',     detail: 'GET /api/groups',                status: 'pending' },
 ];
 
@@ -120,27 +119,7 @@ export default function TestPage() {
       update('wstatus', 'error', e instanceof Error ? e.message : 'Error');
     }
 
-    // 5. Login endpoint (esperamos 401 con credenciales malas)
-    update('login', 'running');
-    try {
-      const r = await fetch(`${BACKEND}/api/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'test', password: 'test' }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (r.status === 401) {
-        update('login', 'ok', 'Endpoint responde correctamente (401 con creds inválidas)');
-      } else if (r.status === 200) {
-        update('login', 'error', 'Aceptó credenciales incorrectas — revisar auth');
-      } else {
-        update('login', 'error', `HTTP inesperado: ${r.status}`);
-      }
-    } catch (e: unknown) {
-      update('login', 'error', e instanceof Error ? e.message : 'Error');
-    }
-
-    // 6. Groups endpoint
+    // 5. Groups endpoint
     update('groups', 'running');
     try {
       const r = await fetch(`${BACKEND}/api/groups`, { signal: AbortSignal.timeout(8000) });

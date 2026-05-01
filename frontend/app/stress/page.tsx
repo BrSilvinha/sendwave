@@ -79,7 +79,6 @@ export default function StressPage() {
       { id: 'status_1',  label: 'GET /api/status (req 1)',       status: 'pending', ms: null, detail: '' },
       { id: 'status_2',  label: 'GET /api/status (req 2)',       status: 'pending', ms: null, detail: '' },
       { id: 'status_3',  label: 'GET /api/status (req 3)',       status: 'pending', ms: null, detail: '' },
-      { id: 'login_bad', label: 'POST /api/admin/login (401)',   status: 'pending', ms: null, detail: '' },
       { id: 'groups',    label: 'GET /api/groups (sin WA)',      status: 'pending', ms: null, detail: '' },
       { id: 'sock_1',    label: 'Socket.IO conexión 1',         status: 'pending', ms: null, detail: '' },
       { id: 'sock_2',    label: 'Socket.IO conexión 2',         status: 'pending', ms: null, detail: '' },
@@ -114,19 +113,6 @@ export default function StressPage() {
       });
       setResult(id, { status: r.ok ? 'ok' : 'error', ms: r.ms, detail: r.detail });
     }
-
-    setResult('login_bad', { status: 'running' });
-    const loginR = await timed(async () => {
-      const res = await fetch(`${BACKEND}/api/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'stress', password: 'test' }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.status === 401) return 'Auth funciona: 401 correctamente';
-      throw new Error(`HTTP inesperado: ${res.status}`);
-    });
-    setResult('login_bad', { status: loginR.ok ? 'ok' : 'error', ms: loginR.ms, detail: loginR.detail });
 
     setResult('groups', { status: 'running' });
     const groupsR = await timed(async () => {

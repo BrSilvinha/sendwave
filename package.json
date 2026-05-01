@@ -1,0 +1,25 @@
+{
+  "name": "sendwave",
+  "version": "1.0.0",
+  "description": "Envío masivo de mensajes por WhatsApp",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "cd frontend && npm run build",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BrSilvinha/sendwave.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/BrSilvinha/sendwave/issues"
+  },
+  "homepage": "https://github.com/BrSilvinha/sendwave#readme",
+  "devDependencies": {
+    "electron": "^33.4.11"
+  }
+}

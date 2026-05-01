@@ -2,9 +2,9 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import pino from 'pino';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import {
   makeWASocket,
   DisconnectReason,
@@ -12,13 +12,15 @@ import {
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const app = express();
 const server = createServer(app);
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
+// ── CORS (desarrollo local + Electron) ───────────────────────────────────────
 const ALLOWED_ORIGINS = [
   'http://localhost:3000',
-  'https://sendwave-lime.vercel.app',
+  'http://localhost:3001',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
@@ -34,27 +36,9 @@ const io = new Server(server, { cors: corsOptions });
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-const ADMIN_USER = process.env.ADMIN_USER || '71749437';
-const ADMIN_PASS_HASH = process.env.ADMIN_PASS_HASH || bcrypt.hashSync('71749437', 10);
-const JWT_SECRET = process.env.JWT_SECRET || 'sw$X9!kPqL2#mRv8@nZdTy6^cJhWbAeU';
-const JWT_EXPIRES = '8h';
-
-if (!process.env.JWT_SECRET) {
-  console.warn('⚠️  JWT_SECRET no configurado — usando valor por defecto');
-}
-
-function requireAdmin(req, res, next) {
-  const token = (req.headers.authorization ?? '').replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'No autorizado' });
-  try { jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Token inválido o expirado' }); }
-}
-
-function verifyAdminToken(token) {
-  try { jwt.verify(token, JWT_SECRET); return true; }
-  catch { return false; }
-}
+// ── Servir frontend estático (build de Next.js) ───────────────────────────────
+const frontendOut = path.join(__dirname, '..', 'frontend', 'out');
+app.use(express.static(frontendOut));
 
 // ── Estado global ─────────────────────────────────────────────────────────────
 let waSocket = null;
@@ -70,20 +54,6 @@ const stats = { totalSent: 0, totalErrors: 0, qrScans: 0, activeSend: null };
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 const randomDelay = () => delay(1500 + Math.random() * 1500);
-
-let adminStatsTimer = null;
-function emitAdminStats() {
-  if (adminStatsTimer) return;
-  adminStatsTimer = setTimeout(() => {
-    io.to('admin').emit('admin-update', { connectedClients: connectedSockets.size, waStatus, stats });
-    adminStatsTimer = null;
-  }, 1000);
-}
-function emitAdminStatsNow() {
-  clearTimeout(adminStatsTimer);
-  adminStatsTimer = null;
-  io.to('admin').emit('admin-update', { connectedClients: connectedSockets.size, waStatus, stats });
-}
 
 // ── WhatsApp con Baileys ──────────────────────────────────────────────────────
 async function initWhatsApp() {
@@ -107,14 +77,12 @@ async function initWhatsApp() {
       waStatus = 'qr';
       io.emit('qr', qr);
       io.emit('status', 'qr');
-      emitAdminStatsNow();
       console.log('QR generado — escanea con tu WhatsApp');
     }
 
     if (connection === 'connecting') {
       waStatus = 'loading';
       io.emit('status', 'loading');
-      emitAdminStats();
     }
 
     if (connection === 'open') {
@@ -125,7 +93,6 @@ async function initWhatsApp() {
       reconnectDelay = 3000;
       if (hadQr) { stats.qrScans += 1; hadQr = false; }
       io.emit('status', 'ready');
-      emitAdminStatsNow();
       console.log('WhatsApp listo');
     }
 
@@ -134,7 +101,6 @@ async function initWhatsApp() {
       waSocket = null;
       waStatus = 'disconnected';
       io.emit('status', 'disconnected');
-      emitAdminStatsNow();
 
       const code = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = code === DisconnectReason.loggedOut;
@@ -158,27 +124,11 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, waStatus, uptime: process.uptime() });
 });
 
-// ── Rutas públicas ────────────────────────────────────────────────────────────
+// ── API ───────────────────────────────────────────────────────────────────────
 app.get('/api/status', (req, res) => {
   res.json({ connected: isConnected, waStatus });
 });
 
-app.post('/api/admin/login', async (req, res) => {
-  const { username, password } = req.body ?? {};
-  if (!username || !password) return res.status(400).json({ error: 'Credenciales requeridas' });
-  const userOk = username === ADMIN_USER;
-  const passOk = userOk && (await bcrypt.compare(String(password), ADMIN_PASS_HASH));
-  if (!userOk || !passOk) return res.status(401).json({ error: 'Credenciales incorrectas' });
-  const token = jwt.sign({ sub: ADMIN_USER }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
-  res.json({ token });
-});
-
-// ── Rutas admin ───────────────────────────────────────────────────────────────
-app.get('/api/admin/stats', requireAdmin, (req, res) => {
-  res.json({ connectedClients: connectedSockets.size, waStatus, stats });
-});
-
-// ── WhatsApp API ──────────────────────────────────────────────────────────────
 app.get('/api/groups', async (req, res) => {
   if (!isConnected || !waSocket) return res.status(400).json({ error: 'WhatsApp no está conectado' });
   try {
@@ -220,7 +170,6 @@ app.post('/api/send', async (req, res) => {
 
   isSending = true;
   stats.activeSend = { total: valid.length, sent: 0, errors: 0 };
-  emitAdminStatsNow();
   res.json({ ok: true, total: valid.length });
 
   for (let i = 0; i < valid.length; i++) {
@@ -230,13 +179,11 @@ app.post('/api/send', async (req, res) => {
       stats.totalSent += 1;
       stats.activeSend.sent += 1;
       io.emit('progress', { index: i + 1, total: valid.length, number: raw, status: 'sent' });
-      emitAdminStats();
       console.log(`[${i + 1}/${valid.length}] Enviado a ${raw}`);
     } catch (err) {
       stats.totalErrors += 1;
       stats.activeSend.errors += 1;
       io.emit('progress', { index: i + 1, total: valid.length, number: raw, status: 'error' });
-      emitAdminStats();
       console.log(`[${i + 1}/${valid.length}] Error en ${raw}: ${err.message}`);
     }
     if (i < valid.length - 1) await randomDelay();
@@ -245,24 +192,16 @@ app.post('/api/send', async (req, res) => {
   isSending = false;
   stats.activeSend = null;
   io.emit('done', {});
-  emitAdminStatsNow();
 });
 
 // ── Sockets ───────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   connectedSockets.add(socket.id);
-  emitAdminStats();
 
   socket.emit('status', isConnected ? 'ready' : currentQr ? 'qr' : 'loading');
   if (currentQr) socket.emit('qr', currentQr);
 
-  socket.on('join-admin', (token) => {
-    if (!verifyAdminToken(token)) { socket.emit('admin-auth-error', 'Token inválido'); return; }
-    socket.join('admin');
-    socket.emit('admin-update', { connectedClients: connectedSockets.size, waStatus, stats });
-  });
-
-  socket.on('disconnect', () => { connectedSockets.delete(socket.id); emitAdminStats(); });
+  socket.on('disconnect', () => { connectedSockets.delete(socket.id); });
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
@@ -275,4 +214,4 @@ process.on('SIGINT', shutdown);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT ?? 3001;
-server.listen(PORT, () => console.log(`SendWave backend corriendo en http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`SendWave corriendo en http://localhost:${PORT}`));

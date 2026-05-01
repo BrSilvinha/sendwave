@@ -7,10 +7,11 @@ backend/.cache/
 # WhatsApp session (sensitive - never commit)
 .wwebjs_auth/
 .wwebjs_cache/
+backend/.auth_state/
 
 # Next.js build
 .next/
-out/
+frontend/out/
 
 # Environment variables
 .env
