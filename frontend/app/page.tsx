@@ -67,11 +67,21 @@ export default function Home() {
     setDone(false);
     setProgress([]);
 
-    await fetch(`${BACKEND}/api/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ numbers: numberList, message: message.trim() }),
-    });
+    try {
+      const res = await fetch(`${BACKEND}/api/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: numberList, message: message.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error ?? 'Error al iniciar el envío');
+        setSending(false);
+      }
+    } catch {
+      alert('No se pudo conectar con el servidor');
+      setSending(false);
+    }
   };
 
   const handleReset = () => {
