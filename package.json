@@ -6,50 +6,8 @@
   "scripts": {
     "start": "electron .",
     "build:frontend": "cd frontend && npm run build",
-    "dist": "npm run build:frontend && electron-builder --win",
-    "pack": "npm run build:frontend && electron-builder --dir",
+    "pack": "npm run build:frontend && node scripts/pack.js",
     "install:all": "cd backend && npm install && cd ../frontend && npm install"
-  },
-  "build": {
-    "appId": "com.sendwave.app",
-    "productName": "SendWave",
-    "asar": true,
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "electron/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "backend",
-        "to": "backend",
-        "filter": [
-          "**/*",
-          "!.auth_state",
-          "!.auth_state/**"
-        ]
-      },
-      {
-        "from": "frontend/out",
-        "to": "frontend/out"
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "SendWave"
-    }
   },
   "repository": {
     "type": "git",
@@ -63,7 +21,7 @@
   },
   "homepage": "https://github.com/BrSilvinha/sendwave#readme",
   "devDependencies": {
-    "electron": "^33.4.11",
-    "electron-builder": "^25.1.8"
+    "@electron/packager": "^20.0.0",
+    "electron": "^33.4.11"
   }
 }

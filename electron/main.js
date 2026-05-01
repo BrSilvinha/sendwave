@@ -5,37 +5,24 @@ const http = require('http');
 let win = null;
 let backend = null;
 
-function backendScript() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'backend', 'server.js')
-    : path.join(__dirname, '..', 'backend', 'server.js');
-}
-
-function backendCwd() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'backend')
-    : path.join(__dirname, '..', 'backend');
-}
-
-function frontendOutDir() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'frontend', 'out')
-    : path.join(__dirname, '..', 'frontend', 'out');
-}
-
 function startBackend() {
+  const appPath = app.getAppPath();
   const userData = app.getPath('userData');
 
-  backend = utilityProcess.fork(backendScript(), [], {
-    stdio: 'pipe',
-    cwd: backendCwd(),
-    env: {
-      ...process.env,
-      PORT: '3001',
-      WA_AUTH_PATH: userData,
-      FRONTEND_OUT: frontendOutDir(),
-    },
-  });
+  backend = utilityProcess.fork(
+    path.join(appPath, 'backend', 'server.js'),
+    [],
+    {
+      stdio: 'pipe',
+      cwd: path.join(appPath, 'backend'),
+      env: {
+        ...process.env,
+        PORT: '3001',
+        WA_AUTH_PATH: userData,
+        FRONTEND_OUT: path.join(appPath, 'frontend', 'out'),
+      },
+    }
+  );
 
   backend.stdout?.on('data', (d) => process.stdout.write(d));
   backend.stderr?.on('data', (d) => process.stderr.write(d));
