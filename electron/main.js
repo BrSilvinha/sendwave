@@ -1,35 +1,68 @@
-const { app, BrowserWindow, dialog } = require('electron');
-const { spawn } = require('child_process');
+const { app, BrowserWindow, dialog, utilityProcess } = require('electron');
 const path = require('path');
 const http = require('http');
 
 let win = null;
-let backendProcess = null;
+let backend = null;
+
+function backendScript() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'backend', 'server.js')
+    : path.join(__dirname, '..', 'backend', 'server.js');
+}
+
+function backendCwd() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'backend')
+    : path.join(__dirname, '..', 'backend');
+}
+
+function frontendOutDir() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'frontend', 'out')
+    : path.join(__dirname, '..', 'frontend', 'out');
+}
 
 function startBackend() {
-  const backendPath = path.join(__dirname, '..', 'backend');
-  backendProcess = spawn('node', ['server.js'], {
-    cwd: backendPath,
-    stdio: 'inherit',
-    env: { ...process.env, PORT: '3001' },
+  const userData = app.getPath('userData');
+
+  backend = utilityProcess.fork(backendScript(), [], {
+    stdio: 'pipe',
+    cwd: backendCwd(),
+    env: {
+      ...process.env,
+      PORT: '3001',
+      WA_AUTH_PATH: userData,
+      FRONTEND_OUT: frontendOutDir(),
+    },
   });
 
-  backendProcess.on('error', (err) => {
-    dialog.showErrorBox('Error de backend', `No se pudo iniciar el servidor: ${err.message}`);
+  backend.stdout?.on('data', (d) => process.stdout.write(d));
+  backend.stderr?.on('data', (d) => process.stderr.write(d));
+
+  backend.on('exit', (code) => {
+    if (code !== 0 && win) {
+      dialog.showErrorBox(
+        'Error inesperado',
+        `El servidor se cerró (código ${code}). Reinicia SendWave.`
+      );
+    }
   });
 }
 
-function waitForBackend(url, retries = 30, interval = 1000) {
+function waitForBackend(retries = 40, interval = 1000) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
     const check = () => {
-      http.get(url, (res) => {
-        if (res.statusCode === 200) return resolve();
-        retry();
-      }).on('error', retry);
+      http
+        .get('http://localhost:3001/health', (res) => {
+          if (res.statusCode === 200) return resolve();
+          retry();
+        })
+        .on('error', retry);
     };
     const retry = () => {
-      if (++attempts >= retries) return reject(new Error('Backend no respondió a tiempo'));
+      if (++attempts >= retries) return reject(new Error('El servidor no respondió'));
       setTimeout(check, interval);
     };
     check();
@@ -57,19 +90,19 @@ function createWindow() {
 app.whenReady().then(async () => {
   startBackend();
   try {
-    await waitForBackend('http://localhost:3001/health');
+    await waitForBackend();
     createWindow();
   } catch {
-    dialog.showErrorBox('Error', 'El servidor no pudo iniciar. Reinicia la aplicación.');
+    dialog.showErrorBox('Error al iniciar', 'SendWave no pudo arrancar. Reinicia la aplicación.');
     app.quit();
   }
 });
 
 app.on('window-all-closed', () => {
-  if (backendProcess) backendProcess.kill();
+  if (backend) backend.kill();
   app.quit();
 });
 
 app.on('activate', () => {
-  if (win === null) createWindow();
+  if (!win) createWindow();
 });

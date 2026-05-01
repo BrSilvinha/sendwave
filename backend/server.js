@@ -12,7 +12,8 @@ import {
   fetchLatestBaileysVersion,
 } from '@whiskeysockets/baileys';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
@@ -37,7 +38,7 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 
 // ── Servir frontend estático (build de Next.js) ───────────────────────────────
-const frontendOut = path.join(__dirname, '..', 'frontend', 'out');
+const frontendOut = process.env.FRONTEND_OUT ?? path.join(__dirname, '..', 'frontend', 'out');
 app.use(express.static(frontendOut));
 
 // ── Estado global ─────────────────────────────────────────────────────────────
@@ -57,7 +58,10 @@ const randomDelay = () => delay(1500 + Math.random() * 1500);
 
 // ── WhatsApp con Baileys ──────────────────────────────────────────────────────
 async function initWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('.auth_state');
+  const authDir = process.env.WA_AUTH_PATH
+    ? path.join(process.env.WA_AUTH_PATH, '.auth_state')
+    : '.auth_state';
+  const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
