@@ -1,40 +1,13 @@
-const { app, BrowserWindow, dialog, utilityProcess } = require('electron');
+const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
 const http = require('http');
+const { pathToFileURL } = require('url');
 
 let win = null;
-let backend = null;
 
-function startBackend() {
-  const appPath = app.getAppPath();
-  const userData = app.getPath('userData');
-
-  backend = utilityProcess.fork(
-    path.join(appPath, 'backend', 'server.js'),
-    [],
-    {
-      stdio: 'pipe',
-      cwd: path.join(appPath, 'backend'),
-      env: {
-        ...process.env,
-        PORT: '3001',
-        WA_AUTH_PATH: userData,
-        FRONTEND_OUT: path.join(appPath, 'frontend', 'out'),
-      },
-    }
-  );
-
-  backend.stdout?.on('data', (d) => process.stdout.write(d));
-  backend.stderr?.on('data', (d) => process.stderr.write(d));
-
-  backend.on('exit', (code) => {
-    if (code !== 0 && win) {
-      dialog.showErrorBox(
-        'Error inesperado',
-        `El servidor se cerró (código ${code}). Reinicia SendWave.`
-      );
-    }
-  });
+async function startServer() {
+  const backendPath = path.join(app.getAppPath(), 'backend', 'server.js');
+  await import(pathToFileURL(backendPath).href);
 }
 
 function waitForBackend(retries = 40, interval = 1000) {
@@ -44,12 +17,12 @@ function waitForBackend(retries = 40, interval = 1000) {
       http
         .get('http://localhost:3001/health', (res) => {
           if (res.statusCode === 200) return resolve();
-          retry();
+          else retry();
         })
         .on('error', retry);
     };
     const retry = () => {
-      if (++attempts >= retries) return reject(new Error('El servidor no respondió'));
+      if (++attempts >= retries) return reject(new Error('El servidor no respondió en 40s'));
       setTimeout(check, interval);
     };
     check();
@@ -75,21 +48,15 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  startBackend();
   try {
+    await startServer();
     await waitForBackend();
     createWindow();
-  } catch {
-    dialog.showErrorBox('Error al iniciar', 'SendWave no pudo arrancar. Reinicia la aplicación.');
+  } catch (err) {
+    dialog.showErrorBox('Error al iniciar', `SendWave no pudo arrancar.\n\n${err.message}`);
     app.quit();
   }
 });
 
-app.on('window-all-closed', () => {
-  if (backend) backend.kill();
-  app.quit();
-});
-
-app.on('activate', () => {
-  if (!win) createWindow();
-});
+app.on('window-all-closed', () => app.quit());
+app.on('activate', () => { if (!win) createWindow(); });
